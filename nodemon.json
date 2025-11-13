@@ -1,0 +1,13 @@
+{
+  "ignore": [
+    "data/**/*",
+    "*.json",
+    "node_modules/**/*"
+  ],
+  "watch": [
+    "server.js",
+    "public/**/*"
+  ],
+  "ext": "js,html,css"
+}
+

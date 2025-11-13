@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mural de Desenho Colaborativo</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎨 Mural de Desenho Colaborativo</h1>
+            <div class="controls">
+                <div class="color-picker-container">
+                    <label for="colorPicker">Cor:</label>
+                    <input type="color" id="colorPicker" value="#000000">
+                </div>
+                <div class="brush-size-container">
+                    <label for="brushSize">Tamanho: <span id="brushSizeValue">5</span>px</label>
+                    <input type="range" id="brushSize" min="1" max="50" value="5">
+                </div>
+                <div class="connection-status">
+                    <span id="status">Conectando...</span>
+                </div>
+            </div>
+        </header>
+        
+        <main>
+            <canvas id="canvas"></canvas>
+        </main>
+        
+        <footer>
+            <p>Desenhos expiram em 1 semana. Desenhe colaborativamente em tempo real!</p>
+        </footer>
+    </div>
+    
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
+
