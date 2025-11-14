@@ -8,6 +8,7 @@ const colorPicker = document.getElementById('colorPicker');
 const brushSize = document.getElementById('brushSize');
 const brushSizeValue = document.getElementById('brushSizeValue');
 const status = document.getElementById('status');
+const onlineCount = document.getElementById('onlineCount');
 
 // Estado do desenho
 let isDrawing = false;
@@ -576,6 +577,17 @@ socket.on('disconnect', () => {
 
 socket.on('connect_error', () => {
     status.className = 'status-indicator disconnected';
+});
+
+// Atualizar contador de pessoas online
+socket.on('online-count', (count) => {
+    if (onlineCount) {
+        if (count === 1) {
+            onlineCount.textContent = '1 pessoa online';
+        } else {
+            onlineCount.textContent = `${count} pessoas online`;
+        }
+    }
 });
 
 // WebRTC para comunicação peer-to-peer (opcional)

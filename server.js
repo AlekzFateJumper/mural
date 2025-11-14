@@ -164,6 +164,15 @@ app.get('/api/drawings', (req, res) => {
 io.on('connection', (socket) => {
   console.log('Usuário conectado:', socket.id);
   
+  // Função para contar usuários online e notificar todos
+  const updateOnlineCount = () => {
+    const count = io.sockets.sockets.size;
+    io.emit('online-count', count);
+  };
+  
+  // Enviar contagem inicial para o novo cliente
+  updateOnlineCount();
+  
   // Enviar desenhos existentes para o novo cliente
   socket.emit('drawings-loaded', drawings);
   
@@ -228,6 +237,8 @@ io.on('connection', (socket) => {
   
   socket.on('disconnect', () => {
     console.log('Usuário desconectado:', socket.id);
+    // Atualizar contagem quando usuário desconecta
+    updateOnlineCount();
   });
 });
 
