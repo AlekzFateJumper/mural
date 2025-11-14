@@ -127,6 +127,7 @@ colorPicker.addEventListener('input', (e) => {
 });
 
 // Variável para manter o path atual durante o desenho (apenas para traço local)
+// Armazena o último ponto desenhado para continuar o traço corretamente
 let currentDrawingPath = null;
 
 // Função para desenhar no canvas (recebe coordenadas normalizadas 0-1)
@@ -138,13 +139,11 @@ function draw(normalizedX, normalizedY, color, normalizedSize, isStart = false, 
     const x = normalizedX * canvasSize;
     const y = normalizedY * canvasSize;
     
-    // Converter tamanho normalizado para pixels
-    const pixelSize = normalizedSize * canvasSize;
+    // Salvar o estado do contexto para garantir isolamento completo
+    ctx.save();
     
-    ctx.lineWidth = pixelSize;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.strokeStyle = color;
+    // SEMPRE começar um novo path para garantir isolamento completo entre traços
+    ctx.beginPath();
     
     if (strokeId) {
         // Traço remoto - usar o traço do Map
@@ -158,18 +157,27 @@ function draw(normalizedX, normalizedY, color, normalizedSize, isStart = false, 
                 size: normalizedSize
             };
             activeStrokes.set(strokeId, stroke);
-            ctx.beginPath();
+            
+            // Configurar contexto completamente para este traço
+            ctx.strokeStyle = stroke.color;
+            ctx.lineWidth = stroke.size * canvasSize;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            // Path já foi iniciado acima
             ctx.moveTo(x, y);
         } else {
             // Continuar traço remoto existente
             if (stroke) {
                 stroke.path.push({ x: normalizedX, y: normalizedY, color, size: normalizedSize });
-                // Usar cor e tamanho do traço original (primeiro ponto)
+                
+                // Configurar contexto completamente usando propriedades do traço original
                 ctx.strokeStyle = stroke.color;
-                const pixelSize = stroke.size * canvasSize;
-                ctx.lineWidth = pixelSize;
-                ctx.beginPath();
-                // Desenhar do último ponto ao novo ponto
+                ctx.lineWidth = stroke.size * canvasSize;
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+                // Path já foi iniciado acima
+                
+                // Desenhar do último ponto do PRÓPRIO traço remoto ao novo ponto
                 if (stroke.path.length > 1) {
                     const prevPoint = stroke.path[stroke.path.length - 2];
                     const prevX = prevPoint.x * canvasSize;
@@ -184,19 +192,39 @@ function draw(normalizedX, normalizedY, color, normalizedSize, isStart = false, 
         }
     } else {
         // Traço local - usar currentDrawingPath
+        // Converter tamanho normalizado para pixels
+        const pixelSize = normalizedSize * canvasSize;
+        
+        // Configurar contexto completamente para traço local
+        ctx.lineWidth = pixelSize;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.strokeStyle = color;
+        // Path já foi iniciado acima
+        
         if (isStart) {
             // Iniciar novo path
             currentDrawingPath = { x: normalizedX, y: normalizedY, color, size: normalizedSize };
-            ctx.beginPath();
             ctx.moveTo(x, y);
         } else {
-            // Continuar o path atual
+            // Continuar o path atual - sempre desenhar do último ponto do PRÓPRIO traço local
             if (currentDrawingPath) {
+                // Mover para o último ponto conhecido do traço local (não do canvas)
+                const lastX = currentDrawingPath.x * canvasSize;
+                const lastY = currentDrawingPath.y * canvasSize;
+                ctx.moveTo(lastX, lastY);
+                // Atualizar o último ponto do traço local
+                currentDrawingPath.x = normalizedX;
+                currentDrawingPath.y = normalizedY;
+                // Desenhar apenas o segmento do último ponto ao novo ponto
                 ctx.lineTo(x, y);
                 ctx.stroke();
             }
         }
     }
+    
+    // Restaurar o estado do contexto
+    ctx.restore();
 }
 
 // Função para calcular coordenadas normalizadas (0-1) do mouse em relação ao canvas
@@ -403,24 +431,36 @@ canvas.addEventListener('touchend', (e) => {
 
 // Receber desenhos de outros usuários (coordenadas já normalizadas)
 socket.on('draw-start', (data) => {
-    // Criar novo traço remoto com o ID recebido
-    if (data.strokeId) {
-        draw(data.x, data.y, data.color, data.size, true, data.strokeId);
+    // Ignorar se for o próprio traço do usuário (verificar se strokeId contém socket.id)
+    if (!data.strokeId || data.strokeId.endsWith('-' + socket.id)) {
+        return;
     }
+    // Criar novo traço remoto com o ID recebido
+    draw(data.x, data.y, data.color, data.size, true, data.strokeId);
 });
 
 socket.on('drawing', (data) => {
-    // Continuar traço remoto usando o ID
-    if (data.strokeId) {
+    // Ignorar se for o próprio traço do usuário
+    if (!data.strokeId || data.strokeId.endsWith('-' + socket.id)) {
+        return;
+    }
+    // Verificar se o traço existe no Map (pode não existir se draw-start ainda não chegou)
+    if (!activeStrokes.has(data.strokeId)) {
+        // Se o traço não existe, criar um novo (evento draw-start pode ter sido perdido)
+        draw(data.x, data.y, data.color, data.size, true, data.strokeId);
+    } else {
+        // Continuar traço remoto usando o ID
         draw(data.x, data.y, data.color, data.size, false, data.strokeId);
     }
 });
 
 socket.on('draw-end', (data) => {
-    // Finalizar e remover traço remoto do Map
-    if (data && data.strokeId) {
-        activeStrokes.delete(data.strokeId);
+    // Ignorar se for o próprio traço do usuário
+    if (!data || !data.strokeId || data.strokeId.endsWith('-' + socket.id)) {
+        return;
     }
+    // Finalizar e remover traço remoto do Map
+    activeStrokes.delete(data.strokeId);
 });
 
 // Função para normalizar desenhos antigos (migração de coordenadas absolutas para normalizadas)
