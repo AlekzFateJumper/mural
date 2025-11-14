@@ -8,30 +8,25 @@
 </head>
 <body>
     <div class="container">
-        <header>
-            <h1>🎨 Mural de Desenho Colaborativo</h1>
-            <div class="controls">
+        <div id="status" class="status-indicator connecting"></div>
+        
+        <main>
+            <div class="control-top">
                 <div class="color-picker-container">
-                    <label for="colorPicker">Cor:</label>
+                    <label for="colorPicker">Cor</label>
                     <input type="color" id="colorPicker" value="#000000">
                 </div>
+            </div>
+            
+            <canvas id="canvas"></canvas>
+            
+            <div class="control-bottom">
                 <div class="brush-size-container">
                     <label for="brushSize">Tamanho: <span id="brushSizeValue">5</span>px</label>
                     <input type="range" id="brushSize" min="1" max="50" value="5">
                 </div>
-                <div class="connection-status">
-                    <span id="status">Conectando...</span>
-                </div>
             </div>
-        </header>
-        
-        <main>
-            <canvas id="canvas"></canvas>
         </main>
-        
-        <footer>
-            <p>Desenhos expiram em 1 semana. Desenhe colaborativamente em tempo real!</p>
-        </footer>
     </div>
     
     <script src="/socket.io/socket.io.js"></script>

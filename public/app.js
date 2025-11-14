@@ -17,19 +17,32 @@ let lastX = 0;
 let lastY = 0;
 let currentPath = [];
 let paths = [];
-let savedDrawings = []; // Desenhos salvos no servidor
+let savedDrawings = []; // Desenhos salvos no servidor (coordenadas normalizadas 0-1)
 
 // Função para desenhar apenas um traço (otimizado)
+// Usa coordenadas normalizadas (0-1) e converte para pixels
 function drawSingleStroke(path) {
     if (!path || path.length === 0) return;
     
+    const canvasSize = canvas.width; // Canvas é sempre quadrado
+    
     ctx.beginPath();
-    ctx.moveTo(path[0].x, path[0].y);
+    // Converter coordenadas normalizadas para pixels
+    const startX = path[0].x * canvasSize;
+    const startY = path[0].y * canvasSize;
+    ctx.moveTo(startX, startY);
+    
     for (let i = 1; i < path.length; i++) {
-        ctx.lineTo(path[i].x, path[i].y);
+        const x = path[i].x * canvasSize;
+        const y = path[i].y * canvasSize;
+        ctx.lineTo(x, y);
     }
+    
     ctx.strokeStyle = path[0].color || '#000000';
-    ctx.lineWidth = path[0].size || 5;
+    // O tamanho já está normalizado (0-1), converter para pixels proporcionalmente
+    // Assumindo que size normalizado de 0.005 = 5px em um canvas de 1000px
+    const normalizedSize = path[0].size || 0.005;
+    ctx.lineWidth = normalizedSize * canvasSize;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.stroke();
@@ -55,16 +68,20 @@ function redrawCanvas() {
     });
 }
 
-// Configuração do canvas
+// Configuração do canvas - quadrado, 100% da menor dimensão disponível
 function resizeCanvas() {
     const container = canvas.parentElement;
-    const maxWidth = container.clientWidth - 40;
-    const maxHeight = container.clientHeight - 40;
+    const containerWidth = container.clientWidth;
+    const containerHeight = container.clientHeight;
     
-    canvas.width = Math.min(1200, maxWidth);
-    canvas.height = Math.min(800, maxHeight);
+    // Usar a menor dimensão para manter quadrado (100% da menor dimensão)
+    const newSize = Math.min(containerWidth, containerHeight);
     
-    // Redesenhar todos os traços
+    // Atualizar tamanho do canvas
+    canvas.width = newSize;
+    canvas.height = newSize;
+    
+    // Redesenhar todos os traços (coordenadas já são normalizadas)
     redrawCanvas();
 }
 
@@ -85,16 +102,25 @@ colorPicker.addEventListener('input', (e) => {
 // Variável para manter o path atual durante o desenho
 let currentDrawingPath = null;
 
-// Função para desenhar no canvas
-function draw(x, y, color, size, isStart = false) {
-    ctx.lineWidth = size;
+// Função para desenhar no canvas (recebe coordenadas normalizadas 0-1)
+function draw(normalizedX, normalizedY, color, normalizedSize, isStart = false) {
+    const canvasSize = canvas.width;
+    
+    // Converter coordenadas normalizadas para pixels
+    const x = normalizedX * canvasSize;
+    const y = normalizedY * canvasSize;
+    
+    // Converter tamanho normalizado para pixels
+    const pixelSize = normalizedSize * canvasSize;
+    
+    ctx.lineWidth = pixelSize;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.strokeStyle = color;
     
     if (isStart) {
         // Iniciar novo path
-        currentDrawingPath = { x, y, color, size };
+        currentDrawingPath = { x: normalizedX, y: normalizedY, color, size: normalizedSize };
         ctx.beginPath();
         ctx.moveTo(x, y);
     } else {
@@ -106,45 +132,83 @@ function draw(x, y, color, size, isStart = false) {
     }
 }
 
+// Função para calcular coordenadas normalizadas (0-1) do mouse em relação ao canvas
+function getCanvasCoordinates(e) {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    
+    // Calcular coordenadas em pixels
+    const pixelX = (e.clientX - rect.left) * scaleX;
+    const pixelY = (e.clientY - rect.top) * scaleY;
+    
+    // Normalizar para 0-1
+    return {
+        x: pixelX / canvas.width,
+        y: pixelY / canvas.height
+    };
+}
+
+// Função para calcular coordenadas normalizadas (0-1) do touch em relação ao canvas
+function getCanvasTouchCoordinates(touch) {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    
+    // Calcular coordenadas em pixels
+    const pixelX = (touch.clientX - rect.left) * scaleX;
+    const pixelY = (touch.clientY - rect.top) * scaleY;
+    
+    // Normalizar para 0-1
+    return {
+        x: pixelX / canvas.width,
+        y: pixelY / canvas.height
+    };
+}
+
 // Eventos do mouse/touch no canvas
 canvas.addEventListener('mousedown', (e) => {
     isDrawing = true;
-    const rect = canvas.getBoundingClientRect();
-    lastX = e.clientX - rect.left;
-    lastY = e.clientY - rect.top;
+    const coords = getCanvasCoordinates(e);
+    lastX = coords.x;
+    lastY = coords.y;
     
-    // Iniciar novo path
-    currentPath = [{ x: lastX, y: lastY, color: currentColor, size: currentBrushSize }];
+    // Normalizar tamanho do traço
+    const normalizedSize = currentBrushSize / canvas.width;
     
-    draw(lastX, lastY, currentColor, currentBrushSize, true);
+    // Iniciar novo path (coordenadas e tamanho normalizados)
+    currentPath = [{ x: lastX, y: lastY, color: currentColor, size: normalizedSize }];
     
-    // Enviar início do desenho
+    draw(lastX, lastY, currentColor, normalizedSize, true);
+    
+    // Enviar início do desenho (coordenadas e tamanho normalizados)
     socket.emit('draw-start', {
         x: lastX,
         y: lastY,
         color: currentColor,
-        size: currentBrushSize
+        size: normalizedSize
     });
 });
 
 canvas.addEventListener('mousemove', (e) => {
     if (!isDrawing) return;
     
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const coords = getCanvasCoordinates(e);
+    const x = coords.x;
+    const y = coords.y;
     
-    // Adicionar ponto ao path atual
-    currentPath.push({ x, y, color: currentColor, size: currentBrushSize });
+    // Adicionar ponto ao path atual (tamanho normalizado)
+    const normalizedSize = currentBrushSize / canvas.width;
+    currentPath.push({ x, y, color: currentColor, size: normalizedSize });
     
-    draw(x, y, currentColor, currentBrushSize);
+    draw(x, y, currentColor, normalizedSize);
     
-    // Enviar movimento do desenho
+    // Enviar movimento do desenho (coordenadas normalizadas, tamanho normalizado)
     socket.emit('drawing', {
         x: x,
         y: y,
         color: currentColor,
-        size: currentBrushSize
+        size: normalizedSize
     });
     
     lastX = x;
@@ -193,18 +257,24 @@ canvas.addEventListener('mouseleave', () => {
 canvas.addEventListener('touchstart', (e) => {
     e.preventDefault();
     const touch = e.touches[0];
-    const rect = canvas.getBoundingClientRect();
-    lastX = touch.clientX - rect.left;
-    lastY = touch.clientY - rect.top;
+    const coords = getCanvasTouchCoordinates(touch);
+    lastX = coords.x;
+    lastY = coords.y;
     isDrawing = true;
     
-    draw(lastX, lastY, currentColor, currentBrushSize, true);
+    // Normalizar tamanho do traço
+    const normalizedSize = currentBrushSize / canvas.width;
+    
+    // Iniciar novo path (coordenadas e tamanho normalizados)
+    currentPath = [{ x: lastX, y: lastY, color: currentColor, size: normalizedSize }];
+    
+    draw(lastX, lastY, currentColor, normalizedSize, true);
     
     socket.emit('draw-start', {
         x: lastX,
         y: lastY,
         color: currentColor,
-        size: currentBrushSize
+        size: normalizedSize
     });
 });
 
@@ -213,17 +283,21 @@ canvas.addEventListener('touchmove', (e) => {
     if (!isDrawing) return;
     
     const touch = e.touches[0];
-    const rect = canvas.getBoundingClientRect();
-    const x = touch.clientX - rect.left;
-    const y = touch.clientY - rect.top;
+    const coords = getCanvasTouchCoordinates(touch);
+    const x = coords.x;
+    const y = coords.y;
     
-    draw(x, y, currentColor, currentBrushSize);
+    // Adicionar ponto ao path atual (tamanho normalizado)
+    const normalizedSize = currentBrushSize / canvas.width;
+    currentPath.push({ x, y, color: currentColor, size: normalizedSize });
+    
+    draw(x, y, currentColor, normalizedSize);
     
     socket.emit('drawing', {
         x: x,
         y: y,
         color: currentColor,
-        size: currentBrushSize
+        size: normalizedSize
     });
     
     lastX = x;
@@ -250,7 +324,7 @@ canvas.addEventListener('touchend', (e) => {
     }
 });
 
-// Receber desenhos de outros usuários
+// Receber desenhos de outros usuários (coordenadas já normalizadas)
 socket.on('draw-start', (data) => {
     draw(data.x, data.y, data.color, data.size, true);
 });
@@ -263,12 +337,50 @@ socket.on('draw-end', () => {
     // Finalizar o caminho atual
 });
 
+// Função para normalizar desenhos antigos (migração de coordenadas absolutas para normalizadas)
+function normalizeDrawings(drawings) {
+    return drawings.map(drawing => {
+        if (drawing.data && drawing.data.length > 0) {
+            // Verificar se precisa normalizar (coordenadas > 1.1 indicam coordenadas absolutas)
+            // Usamos 1.1 para evitar falsos positivos com coordenadas normalizadas próximas de 1
+            const needsNormalization = drawing.data.some(path => 
+                path.some(point => point.x > 1.1 || point.y > 1.1)
+            );
+            
+            if (needsNormalization) {
+                // Encontrar o tamanho original do canvas (assumir que coordenadas máximas indicam o tamanho)
+                let maxCoord = 0;
+                drawing.data.forEach(path => {
+                    path.forEach(point => {
+                        maxCoord = Math.max(maxCoord, point.x, point.y);
+                    });
+                });
+                
+                if (maxCoord > 0) {
+                    // Normalizar coordenadas e tamanhos
+                    drawing.data = drawing.data.map(path => 
+                        path.map(point => ({
+                            x: point.x / maxCoord,
+                            y: point.y / maxCoord,
+                            color: point.color,
+                            // Normalizar tamanho: se size > 0.1, provavelmente está em pixels
+                            size: (point.size && point.size > 0.1) ? point.size / maxCoord : (point.size || 0.005)
+                        }))
+                    );
+                }
+            }
+        }
+        return drawing;
+    });
+}
+
 // Carregar desenhos salvos
 async function loadSavedDrawings() {
     try {
         const response = await fetch('/api/drawings');
         const serverDrawings = await response.json();
-        savedDrawings = serverDrawings;
+        // Normalizar desenhos antigos se necessário
+        savedDrawings = normalizeDrawings(serverDrawings);
         redrawCanvas();
     } catch (error) {
         console.error('Erro ao carregar desenhos:', error);
@@ -287,24 +399,28 @@ function saveCurrentDrawing() {
 }
 
 socket.on('drawings-loaded', (drawings) => {
-    savedDrawings = drawings;
+    // Normalizar desenhos antigos se necessário
+    savedDrawings = normalizeDrawings(drawings);
     redrawCanvas();
 });
 
 socket.on('drawing-saved', (newDrawing) => {
+    // Normalizar o novo desenho se necessário (pode ser de um cliente antigo)
+    const normalized = normalizeDrawings([newDrawing])[0];
+    
     // Adicionar o novo desenho aos desenhos salvos
-    savedDrawings.push(newDrawing);
+    savedDrawings.push(normalized);
     
     // Verificar se é um traço do próprio usuário
     let isMyStroke = false;
     if (paths.length > 0) {
         const lastPath = paths[paths.length - 1];
-        const savedPath = newDrawing.data && newDrawing.data[0];
+        const savedPath = normalized.data && normalized.data[0];
         
-        // Verificar se é o mesmo traço comparando o primeiro ponto
+        // Verificar se é o mesmo traço comparando o primeiro ponto (coordenadas normalizadas)
         if (savedPath && savedPath.length > 0 && lastPath.length > 0 &&
-            Math.abs(lastPath[0].x - savedPath[0].x) < 1 &&
-            Math.abs(lastPath[0].y - savedPath[0].y) < 1) {
+            Math.abs(lastPath[0].x - savedPath[0].x) < 0.001 &&
+            Math.abs(lastPath[0].y - savedPath[0].y) < 0.001) {
             // É o traço do próprio usuário - já está desenhado no canvas
             isMyStroke = true;
             // Remover de paths (já está salvo e desenhado)
@@ -313,8 +429,8 @@ socket.on('drawing-saved', (newDrawing) => {
     }
     
     // Apenas desenhar se NÃO for do próprio usuário (traços de outros usuários)
-    if (!isMyStroke && newDrawing.data && newDrawing.data.length > 0) {
-        newDrawing.data.forEach(path => {
+    if (!isMyStroke && normalized.data && normalized.data.length > 0) {
+        normalized.data.forEach(path => {
             drawSingleStroke(path);
         });
     }
@@ -323,20 +439,17 @@ socket.on('drawing-saved', (newDrawing) => {
 // Carregar desenhos ao iniciar
 loadSavedDrawings();
 
-// Status de conexão
+// Status de conexão - apenas círculo colorido
 socket.on('connect', () => {
-    status.textContent = 'Conectado';
-    status.className = 'connected';
+    status.className = 'status-indicator connected';
 });
 
 socket.on('disconnect', () => {
-    status.textContent = 'Desconectado';
-    status.className = 'disconnected';
+    status.className = 'status-indicator disconnected';
 });
 
 socket.on('connect_error', () => {
-    status.textContent = 'Erro de conexão';
-    status.className = 'disconnected';
+    status.className = 'status-indicator disconnected';
 });
 
 // WebRTC para comunicação peer-to-peer (opcional)
