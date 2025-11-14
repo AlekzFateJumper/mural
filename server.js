@@ -169,17 +169,20 @@ io.on('connection', (socket) => {
   
   // Quando um cliente começa a desenhar
   socket.on('draw-start', (data) => {
+    // Propagar o evento com o strokeId incluído
     socket.broadcast.emit('draw-start', data);
   });
   
   // Quando um cliente está desenhando
   socket.on('drawing', (data) => {
+    // Propagar o evento com o strokeId incluído
     socket.broadcast.emit('drawing', data);
   });
   
   // Quando um cliente termina de desenhar
-  socket.on('draw-end', () => {
-    socket.broadcast.emit('draw-end');
+  socket.on('draw-end', (data) => {
+    // Propagar o evento com o strokeId incluído (se fornecido)
+    socket.broadcast.emit('draw-end', data || {});
   });
   
   // Quando um cliente salva um desenho completo

@@ -19,6 +19,16 @@ let currentPath = [];
 let paths = [];
 let savedDrawings = []; // Desenhos salvos no servidor (coordenadas normalizadas 0-1)
 
+// Gerenciamento de traços ativos (para desenhos remotos em tempo real)
+// Map<strokeId, { path: Array, color: string, size: number }>
+let activeStrokes = new Map();
+let currentStrokeId = null; // ID do traço atual do usuário local
+
+// Função para gerar ID único para cada traço
+function generateStrokeId() {
+    return Date.now().toString() + '-' + Math.random().toString(36).substr(2, 9) + '-' + socket.id;
+}
+
 // Função para desenhar apenas um traço (otimizado)
 // Usa coordenadas normalizadas (0-1) e converte para pixels
 function drawSingleStroke(path) {
@@ -116,11 +126,12 @@ colorPicker.addEventListener('input', (e) => {
     currentColor = e.target.value;
 });
 
-// Variável para manter o path atual durante o desenho
+// Variável para manter o path atual durante o desenho (apenas para traço local)
 let currentDrawingPath = null;
 
 // Função para desenhar no canvas (recebe coordenadas normalizadas 0-1)
-function draw(normalizedX, normalizedY, color, normalizedSize, isStart = false) {
+// strokeId: ID do traço (opcional, se fornecido é um traço remoto)
+function draw(normalizedX, normalizedY, color, normalizedSize, isStart = false, strokeId = null) {
     const canvasSize = canvas.width;
     
     // Converter coordenadas normalizadas para pixels
@@ -135,16 +146,55 @@ function draw(normalizedX, normalizedY, color, normalizedSize, isStart = false) 
     ctx.lineJoin = 'round';
     ctx.strokeStyle = color;
     
-    if (isStart) {
-        // Iniciar novo path
-        currentDrawingPath = { x: normalizedX, y: normalizedY, color, size: normalizedSize };
-        ctx.beginPath();
-        ctx.moveTo(x, y);
+    if (strokeId) {
+        // Traço remoto - usar o traço do Map
+        let stroke = activeStrokes.get(strokeId);
+        
+        if (isStart) {
+            // Iniciar novo traço remoto
+            stroke = {
+                path: [{ x: normalizedX, y: normalizedY, color, size: normalizedSize }],
+                color,
+                size: normalizedSize
+            };
+            activeStrokes.set(strokeId, stroke);
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+        } else {
+            // Continuar traço remoto existente
+            if (stroke) {
+                stroke.path.push({ x: normalizedX, y: normalizedY, color, size: normalizedSize });
+                // Usar cor e tamanho do traço original (primeiro ponto)
+                ctx.strokeStyle = stroke.color;
+                const pixelSize = stroke.size * canvasSize;
+                ctx.lineWidth = pixelSize;
+                ctx.beginPath();
+                // Desenhar do último ponto ao novo ponto
+                if (stroke.path.length > 1) {
+                    const prevPoint = stroke.path[stroke.path.length - 2];
+                    const prevX = prevPoint.x * canvasSize;
+                    const prevY = prevPoint.y * canvasSize;
+                    ctx.moveTo(prevX, prevY);
+                } else {
+                    ctx.moveTo(x, y);
+                }
+                ctx.lineTo(x, y);
+                ctx.stroke();
+            }
+        }
     } else {
-        // Continuar o path atual
-        if (currentDrawingPath) {
-            ctx.lineTo(x, y);
-            ctx.stroke();
+        // Traço local - usar currentDrawingPath
+        if (isStart) {
+            // Iniciar novo path
+            currentDrawingPath = { x: normalizedX, y: normalizedY, color, size: normalizedSize };
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+        } else {
+            // Continuar o path atual
+            if (currentDrawingPath) {
+                ctx.lineTo(x, y);
+                ctx.stroke();
+            }
         }
     }
 }
@@ -190,18 +240,22 @@ canvas.addEventListener('mousedown', (e) => {
     lastX = coords.x;
     lastY = coords.y;
     
+    // Gerar ID único para este traço
+    currentStrokeId = generateStrokeId();
+    
     // Tamanho já está em porcentagem relativa (0-1)
     // Iniciar novo path (coordenadas e tamanho normalizados)
     currentPath = [{ x: lastX, y: lastY, color: currentColor, size: currentBrushSizePercent }];
     
     draw(lastX, lastY, currentColor, currentBrushSizePercent, true);
     
-    // Enviar início do desenho (coordenadas e tamanho normalizados)
+    // Enviar início do desenho (coordenadas e tamanho normalizados) com ID
     socket.emit('draw-start', {
         x: lastX,
         y: lastY,
         color: currentColor,
-        size: currentBrushSizePercent
+        size: currentBrushSizePercent,
+        strokeId: currentStrokeId
     });
 });
 
@@ -217,12 +271,13 @@ canvas.addEventListener('mousemove', (e) => {
     
     draw(x, y, currentColor, currentBrushSizePercent);
     
-    // Enviar movimento do desenho (coordenadas normalizadas, tamanho em porcentagem)
+    // Enviar movimento do desenho (coordenadas normalizadas, tamanho em porcentagem) com ID
     socket.emit('drawing', {
         x: x,
         y: y,
         color: currentColor,
-        size: currentBrushSizePercent
+        size: currentBrushSizePercent,
+        strokeId: currentStrokeId
     });
     
     lastX = x;
@@ -244,7 +299,9 @@ canvas.addEventListener('mouseup', () => {
             saveCurrentDrawing();
         }
         
-        socket.emit('draw-end');
+        // Enviar fim do desenho com ID
+        socket.emit('draw-end', { strokeId: currentStrokeId });
+        currentStrokeId = null;
     }
 });
 
@@ -263,7 +320,9 @@ canvas.addEventListener('mouseleave', () => {
             saveCurrentDrawing();
         }
         
-        socket.emit('draw-end');
+        // Enviar fim do desenho com ID
+        socket.emit('draw-end', { strokeId: currentStrokeId });
+        currentStrokeId = null;
     }
 });
 
@@ -276,6 +335,9 @@ canvas.addEventListener('touchstart', (e) => {
     lastY = coords.y;
     isDrawing = true;
     
+    // Gerar ID único para este traço
+    currentStrokeId = generateStrokeId();
+    
     // Tamanho já está em porcentagem relativa (0-1)
     // Iniciar novo path (coordenadas e tamanho normalizados)
     currentPath = [{ x: lastX, y: lastY, color: currentColor, size: currentBrushSizePercent }];
@@ -286,7 +348,8 @@ canvas.addEventListener('touchstart', (e) => {
         x: lastX,
         y: lastY,
         color: currentColor,
-        size: currentBrushSizePercent
+        size: currentBrushSizePercent,
+        strokeId: currentStrokeId
     });
 });
 
@@ -308,7 +371,8 @@ canvas.addEventListener('touchmove', (e) => {
         x: x,
         y: y,
         color: currentColor,
-        size: currentBrushSizePercent
+        size: currentBrushSizePercent,
+        strokeId: currentStrokeId
     });
     
     lastX = x;
@@ -331,21 +395,32 @@ canvas.addEventListener('touchend', (e) => {
             saveCurrentDrawing();
         }
         
-        socket.emit('draw-end');
+        // Enviar fim do desenho com ID
+        socket.emit('draw-end', { strokeId: currentStrokeId });
+        currentStrokeId = null;
     }
 });
 
 // Receber desenhos de outros usuários (coordenadas já normalizadas)
 socket.on('draw-start', (data) => {
-    draw(data.x, data.y, data.color, data.size, true);
+    // Criar novo traço remoto com o ID recebido
+    if (data.strokeId) {
+        draw(data.x, data.y, data.color, data.size, true, data.strokeId);
+    }
 });
 
 socket.on('drawing', (data) => {
-    draw(data.x, data.y, data.color, data.size);
+    // Continuar traço remoto usando o ID
+    if (data.strokeId) {
+        draw(data.x, data.y, data.color, data.size, false, data.strokeId);
+    }
 });
 
-socket.on('draw-end', () => {
-    // Finalizar o caminho atual
+socket.on('draw-end', (data) => {
+    // Finalizar e remover traço remoto do Map
+    if (data && data.strokeId) {
+        activeStrokes.delete(data.strokeId);
+    }
 });
 
 // Função para normalizar desenhos antigos (migração de coordenadas absolutas para normalizadas)
