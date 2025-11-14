@@ -12,7 +12,7 @@ const status = document.getElementById('status');
 // Estado do desenho
 let isDrawing = false;
 let currentColor = '#000000';
-let currentBrushSize = 5;
+let currentBrushSizePercent = 0.005; // Tamanho do pincel em porcentagem do canvas (0.5% = 5px em 1000px, valor inicial = 5 no slider)
 let lastX = 0;
 let lastY = 0;
 let currentPath = [];
@@ -39,8 +39,7 @@ function drawSingleStroke(path) {
     }
     
     ctx.strokeStyle = path[0].color || '#000000';
-    // O tamanho já está normalizado (0-1), converter para pixels proporcionalmente
-    // Assumindo que size normalizado de 0.005 = 5px em um canvas de 1000px
+    // O tamanho está normalizado como porcentagem (0-1), converter para pixels
     const normalizedSize = path[0].size || 0.005;
     ctx.lineWidth = normalizedSize * canvasSize;
     ctx.lineCap = 'round';
@@ -88,10 +87,28 @@ function resizeCanvas() {
 resizeCanvas();
 window.addEventListener('resize', resizeCanvas);
 
-// Atualizar tamanho do pincel
+// Inicializar tamanho do pincel baseado no valor do slider
+function initializeBrushSize() {
+    const slider = document.getElementById('brushSize');
+    const sliderValue = parseInt(slider.value);
+    // Converter slider (1-50) para porcentagem do canvas (0.1% a 5%)
+    // 1 = 0.1% = 1px em 1000px, 50 = 5% = 50px em 1000px
+    currentBrushSizePercent = sliderValue / 1000;
+    // Exibir o valor do slider diretamente (1 a 50)
+    brushSizeValue.textContent = sliderValue;
+}
+
+initializeBrushSize();
+
+// Atualizar tamanho do pincel (valor de 1-50 convertido para porcentagem relativa)
 brushSize.addEventListener('input', (e) => {
-    currentBrushSize = parseInt(e.target.value);
-    brushSizeValue.textContent = currentBrushSize;
+    const sliderValue = parseInt(e.target.value);
+    // Converter slider (1-50) para porcentagem do canvas (0.1% a 5%)
+    // 1 = 0.1% = 1px em 1000px, 50 = 5% = 50px em 1000px
+    currentBrushSizePercent = sliderValue / 1000;
+    
+    // Exibir o valor do slider diretamente (1 a 50)
+    brushSizeValue.textContent = sliderValue;
 });
 
 // Atualizar cor
@@ -173,20 +190,18 @@ canvas.addEventListener('mousedown', (e) => {
     lastX = coords.x;
     lastY = coords.y;
     
-    // Normalizar tamanho do traço
-    const normalizedSize = currentBrushSize / canvas.width;
-    
+    // Tamanho já está em porcentagem relativa (0-1)
     // Iniciar novo path (coordenadas e tamanho normalizados)
-    currentPath = [{ x: lastX, y: lastY, color: currentColor, size: normalizedSize }];
+    currentPath = [{ x: lastX, y: lastY, color: currentColor, size: currentBrushSizePercent }];
     
-    draw(lastX, lastY, currentColor, normalizedSize, true);
+    draw(lastX, lastY, currentColor, currentBrushSizePercent, true);
     
     // Enviar início do desenho (coordenadas e tamanho normalizados)
     socket.emit('draw-start', {
         x: lastX,
         y: lastY,
         color: currentColor,
-        size: normalizedSize
+        size: currentBrushSizePercent
     });
 });
 
@@ -197,18 +212,17 @@ canvas.addEventListener('mousemove', (e) => {
     const x = coords.x;
     const y = coords.y;
     
-    // Adicionar ponto ao path atual (tamanho normalizado)
-    const normalizedSize = currentBrushSize / canvas.width;
-    currentPath.push({ x, y, color: currentColor, size: normalizedSize });
+    // Adicionar ponto ao path atual (tamanho em porcentagem)
+    currentPath.push({ x, y, color: currentColor, size: currentBrushSizePercent });
     
-    draw(x, y, currentColor, normalizedSize);
+    draw(x, y, currentColor, currentBrushSizePercent);
     
-    // Enviar movimento do desenho (coordenadas normalizadas, tamanho normalizado)
+    // Enviar movimento do desenho (coordenadas normalizadas, tamanho em porcentagem)
     socket.emit('drawing', {
         x: x,
         y: y,
         color: currentColor,
-        size: normalizedSize
+        size: currentBrushSizePercent
     });
     
     lastX = x;
@@ -262,19 +276,17 @@ canvas.addEventListener('touchstart', (e) => {
     lastY = coords.y;
     isDrawing = true;
     
-    // Normalizar tamanho do traço
-    const normalizedSize = currentBrushSize / canvas.width;
-    
+    // Tamanho já está em porcentagem relativa (0-1)
     // Iniciar novo path (coordenadas e tamanho normalizados)
-    currentPath = [{ x: lastX, y: lastY, color: currentColor, size: normalizedSize }];
+    currentPath = [{ x: lastX, y: lastY, color: currentColor, size: currentBrushSizePercent }];
     
-    draw(lastX, lastY, currentColor, normalizedSize, true);
+    draw(lastX, lastY, currentColor, currentBrushSizePercent, true);
     
     socket.emit('draw-start', {
         x: lastX,
         y: lastY,
         color: currentColor,
-        size: normalizedSize
+        size: currentBrushSizePercent
     });
 });
 
@@ -287,17 +299,16 @@ canvas.addEventListener('touchmove', (e) => {
     const x = coords.x;
     const y = coords.y;
     
-    // Adicionar ponto ao path atual (tamanho normalizado)
-    const normalizedSize = currentBrushSize / canvas.width;
-    currentPath.push({ x, y, color: currentColor, size: normalizedSize });
+    // Adicionar ponto ao path atual (tamanho em porcentagem)
+    currentPath.push({ x, y, color: currentColor, size: currentBrushSizePercent });
     
-    draw(x, y, currentColor, normalizedSize);
+    draw(x, y, currentColor, currentBrushSizePercent);
     
     socket.emit('drawing', {
         x: x,
         y: y,
         color: currentColor,
-        size: normalizedSize
+        size: currentBrushSizePercent
     });
     
     lastX = x;
